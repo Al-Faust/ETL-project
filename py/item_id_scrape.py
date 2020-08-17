@@ -35,6 +35,7 @@ def scrape():
         'item_name':item_name,
         'id': item_id
         }
+    
     browser.quit()
 
     #get id and plug into api
