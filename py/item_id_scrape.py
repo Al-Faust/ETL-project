@@ -13,14 +13,14 @@ def init_browser():
     executable_path = {"executable_path": "chromedriver"}
     return Browser("chrome", **executable_path, headless=False)
 
-def scrape():
+def scrape1():
     #start browser and visit item id page (currently using Fire rune as test)
     browser = init_browser()
     url = f'http://www.itemdb.biz/index.php?search=fire+rune'
-    init_browser().visit(url)
+    browser.visit(url)
 
     #pause for load
-    time.sleep(5)
+    #time.sleep(5)
 
     # scrape page into soup
     html = browser.html
@@ -28,33 +28,28 @@ def scrape():
 
     #locate item id and name
     table_row = soup.find_all('tbody')
+    item_dict = {}
     for th in table_row:
         item_id = th.find('td').text
         item_name = th.find('td').next_element.next_element.next_element.next_element.next_element
         item_dict = {
-        'item_name':item_name,
-        'id': item_id
+            'item_name':item_name,
+            'item_id': item_id 
         }
-    
+    #time.sleep(5)
     browser.quit()
 
     #get id and plug into api
-    id = item_dict['id']
-    gen_url = f'https://secure.runescape.com/m=itemdb_rs/api/catalogue/detail.json?item={id}'
+    newid = item_dict['item_id']
+    gen_url = f'https://secure.runescape.com/m=itemdb_rs/api/catalogue/detail.json?item={newid}'
     gen_response = requests.get(gen_url)
     gen_json = gen_response.json()
 
-    graph_url = f'http://services.runescape.com/m=itemdb_rs/api/graph/{id}.json'
-    graph_response = requests.get(graph_url)
-    graph_json = graph_response.json()
-    graph_daily = graph_json['daily']
-
     #generate df
     gen_df = pd.DataFrame()
-    daily_graph_df = pd.DataFrame()
 
     #get gen info into variables
-    id = gen_json['item']['id']
+    itemid = gen_json['item']['id']
     name = gen_json['item']['name']
     small_icon_url = gen_json['item']['icon']
     large_icon_url = gen_json['item']['icon_large']
@@ -65,19 +60,61 @@ def scrape():
 
     #remove weird characters in price, change over time variables and add to gen df
     if type(current_price['price']) == int:
-        gen_df['id'] = [id]
+        gen_df['id'] = [itemid]
         gen_df['name'] = [name]
         gen_df['current_price'] = [current_price['price']]
         gen_df['_30_day_change'] = [short_delta['change'].strip('+%')]
         gen_df['_90_day_change'] = [med_delta['change'].strip('+%')]
         gen_df['_180_day_change'] = [long_delta['change'].strip('+%')]
+        gen_df['small_icon_url'] = [small_icon_url]
+        gen_df['large_icon_url'] = [large_icon_url]
     else:
-        gen_df['id'] = [id]
+        gen_df['id'] = [itemid]
         gen_df['name'] = [name]
         gen_df['current_price'] = [current_price['price'].replace(',','')]
         gen_df['_30_day_change'] = [short_delta['change'].strip('+%')]
         gen_df['_90_day_change'] = [med_delta['change'].strip('+%')]
         gen_df['_180_day_change'] = [long_delta['change'].strip('+%')]
+        gen_df['small_icon_url'] = [small_icon_url]
+        gen_df['large_icon_url'] = [large_icon_url]
+
+    gen_json = gen_df.to_json(orient="records")
+    return gen_json
+
+def scrape2():
+    #start browser and visit item id page (currently using Fire rune as test)
+    browser = init_browser()
+    url = f'http://www.itemdb.biz/index.php?search=fire+rune'
+    browser.visit(url)
+
+    #pause for load
+    #time.sleep(5)
+
+    # scrape page into soup
+    html = browser.html
+    soup = bs(html, 'html.parser')
+
+    #locate item id and name
+    table_row = soup.find_all('tbody')
+    item_dict = {}
+    for th in table_row:
+        item_id = th.find('td').text
+        item_name = th.find('td').next_element.next_element.next_element.next_element.next_element
+        item_dict = {
+            'item_name':item_name,
+            'item_id': item_id 
+        }
+    #time.sleep(5)
+    browser.quit()
+
+    newid = item_dict['item_id']
+    graph_url = f'http://services.runescape.com/m=itemdb_rs/api/graph/{newid}.json'
+    graph_response = requests.get(graph_url)
+    graph_json = graph_response.json()
+    graph_daily = graph_json['daily']
+
+    #generate df
+    daily_graph_df = pd.DataFrame()
 
     #separate daily keys and values into 2 lists
     daily_keys = graph_daily.keys()
@@ -87,7 +124,7 @@ def scrape():
 
     #apply timestamp mod and add new keys to list
     for key in daily_keys:
-        timestamp = datetime.datetime.fromtimestamp(( int(key) / 1000)).strftime('%m/%d/%Y')
+        timestamp = datetime.datetime.fromtimestamp(( int(key) / 1000)).strftime('%m.%d.%Y')
         correct_daily_keys.append(timestamp)
 
     #add new values to list
@@ -97,39 +134,6 @@ def scrape():
     #add to daily graph df
     daily_graph_df['Date'] = correct_daily_keys
     daily_graph_df['price'] = correct_daily_value
+    daily_graph_json = daily_graph_df.to_json(orient="records")
 
-    #sql connection
-    connection_string = 'postgres:nwyfre@localhost:5432/osrs_ge_tracker_db'
-    engine = create_engine(f'postgresql://{connection_string}')
-
-    #update sql tables
-    gen_df.to_sql(name='temp_holding', con=engine, if_exists='replace', index=False)
-    daily_graph_df.to_sql(name='price_over_time', con=engine, if_exists='replace', index=False)
-    conn = engine.connect()
-    trans = conn.begin()
-
-    try:
-        engine.execute('delete from general_info where id in(select id from temp_holding)')
-        
-        gen_df.to_sql(name='general_info', con=engine, if_exists='append', index=False)
-
-    except:
-        trans.rollback()
-        raise
-
-    #create value over time chart and save
-    plt.plot(daily_graph_df['Date'], daily_graph_df['price'])
-    plt.title(f'{name} value over time')
-    plt.ylabel('GP')
-    axes = plt.gca()
-    axes.yaxis.grid()
-    plt.tick_params(
-        axis='x',          # changes apply to the x-axis
-        which='both',      # both major and minor ticks are affected
-        bottom=False,      # ticks along the bottom edge are off
-        top=False,         # ticks along the top edge are off
-        labelbottom=False) # labels along the bottom edge are off
-    plt.show
-    plt.savefig('img/valueovertime.png')
-
-    return gen_df, daily_graph_df
+    return daily_graph_json
