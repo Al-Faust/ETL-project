@@ -78,8 +78,26 @@ def scrape1():
         gen_df['small_icon_url'] = [small_icon_url]
         gen_df['large_icon_url'] = [large_icon_url]
 
-    gen_json = gen_df.to_json(orient="records")
-    return gen_json
+    #gen_json = gen_df.to_json(orient="records")
+
+    connection_string = 'postgres:nwyfre@localhost:5432/osrs_ge_tracker_db'
+    engine = create_engine(f'postgresql://{connection_string}')
+
+    gen_df.to_sql(name='temp_holding', con=engine, if_exists='replace', index=False)
+
+    conn = engine.connect()
+    trans = conn.begin()
+
+    try:
+        engine.execute('delete from general_info where id in(select id from temp_holding)')
+    
+        gen_df.to_sql(name='general_info', con=engine, if_exists='append', index=False)
+
+    except:
+        trans.rollback()
+        raise
+
+    return
 
 def scrape2():
     #start browser and visit item id page (currently using Fire rune as test)
@@ -124,7 +142,7 @@ def scrape2():
 
     #apply timestamp mod and add new keys to list
     for key in daily_keys:
-        timestamp = datetime.datetime.fromtimestamp(( int(key) / 1000)).strftime('%m.%d.%Y')
+        timestamp = datetime.datetime.fromtimestamp(( int(key) / 1000)).strftime('%m-%d-%Y')
         correct_daily_keys.append(timestamp)
 
     #add new values to list
@@ -134,6 +152,11 @@ def scrape2():
     #add to daily graph df
     daily_graph_df['Date'] = correct_daily_keys
     daily_graph_df['price'] = correct_daily_value
-    daily_graph_json = daily_graph_df.to_json(orient="records")
+    #daily_graph_json = daily_graph_df.to_json(orient="records")
 
-    return daily_graph_json
+    connection_string = 'postgres:nwyfre@localhost:5432/osrs_ge_tracker_db'
+    engine = create_engine(f'postgresql://{connection_string}')
+
+    daily_graph_df.to_sql(name='price_over_time', con=engine, if_exists='replace', index=False)
+
+    return

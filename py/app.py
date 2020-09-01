@@ -27,11 +27,11 @@ def test():
 @app.route("/scrape")
 def scraper():
     #run scrape script
-    item_gen = item_id_scrape.scrape1()
-    item_daily = item_id_scrape.scrape2()
+    item_id_scrape.scrape1()
+    item_id_scrape.scrape2()
 
 
-    return item_gen
+    return
 
 
 if __name__ == "__main__":
