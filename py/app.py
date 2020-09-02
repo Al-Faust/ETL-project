@@ -31,7 +31,7 @@ def scraper():
     item_id_scrape.scrape2()
 
 
-    return
+    return redirect("/")
 
 
 if __name__ == "__main__":
